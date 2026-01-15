@@ -17,7 +17,56 @@ import {
   type SearchFilesInput
 } from "../schemas/drive.js";
 import { ResponseFormat } from "../constants.js";
-import type { CommentData, ReplyData } from "../types.js";
+import type { CommentData, ReplyData, FileData } from "../types.js";
+
+const MIME_TYPE_MAP: Record<string, string> = {
+  documents: "application/vnd.google-apps.document",
+  spreadsheets: "application/vnd.google-apps.spreadsheet",
+  presentations: "application/vnd.google-apps.presentation",
+  folders: "application/vnd.google-apps.folder"
+};
+
+const MIME_TYPE_DISPLAY: Record<string, string> = {
+  "application/vnd.google-apps.document": "Google Doc",
+  "application/vnd.google-apps.spreadsheet": "Google Sheet",
+  "application/vnd.google-apps.presentation": "Google Slides",
+  "application/vnd.google-apps.folder": "Folder",
+  "application/vnd.google-apps.form": "Google Form",
+  "application/pdf": "PDF",
+  "image/png": "PNG Image",
+  "image/jpeg": "JPEG Image"
+};
+
+function formatFileForMarkdown(file: FileData): string {
+  const typeDisplay = MIME_TYPE_DISPLAY[file.mimeType] || file.mimeType;
+  const lines: string[] = [
+    `### ${file.name}`,
+    `- **ID**: \`${file.id}\``,
+    `- **Type**: ${typeDisplay}`
+  ];
+
+  if (file.modifiedTime) {
+    lines.push(`- **Modified**: ${file.modifiedTime}`);
+  }
+  if (file.size) {
+    lines.push(`- **Size**: ${formatFileSize(Number(file.size))}`);
+  }
+  if (file.webViewLink) {
+    lines.push(`- **Link**: ${file.webViewLink}`);
+  }
+  if (file.owners && file.owners.length > 0) {
+    lines.push(`- **Owner**: ${file.owners.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
 
 function formatCommentForMarkdown(comment: CommentData): string {
   const lines: string[] = [
@@ -382,6 +431,228 @@ Note: This action cannot be undone.`,
             type: "text",
             text: `Comment ${params.comment_id} has been deleted.`
           }],
+          structuredContent: output
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "drive_list_files",
+    {
+      title: "List Drive Files",
+      description: `List files in your Google Drive.
+
+Args:
+  - page_size (number): Max files to return, 1-100 (default: 20)
+  - page_token (string, optional): Pagination token for next page
+  - order_by (string): Sort order (default: 'modifiedTime desc')
+  - mime_type ('all' | 'documents' | 'spreadsheets' | 'presentations' | 'folders'): Filter by type (default: 'all')
+  - response_format ('markdown' | 'json'): Output format (default: 'markdown')
+
+Returns:
+  For JSON format:
+  {
+    "files": [
+      {
+        "id": string,
+        "name": string,
+        "mimeType": string,
+        "createdTime": string,
+        "modifiedTime": string,
+        "size": string,
+        "webViewLink": string,
+        "owners": string[]
+      }
+    ],
+    "next_page_token": string | null
+  }`,
+      inputSchema: ListFilesSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (params: ListFilesInput) => {
+      try {
+        const drive = getDriveClient();
+
+        let q = "trashed = false";
+        if (params.mime_type !== "all") {
+          const mimeType = MIME_TYPE_MAP[params.mime_type];
+          if (mimeType) {
+            q += ` and mimeType = '${mimeType}'`;
+          }
+        }
+
+        const response = await drive.files.list({
+          q,
+          pageSize: params.page_size,
+          pageToken: params.page_token,
+          orderBy: params.order_by,
+          fields: "files(id,name,mimeType,createdTime,modifiedTime,size,webViewLink,owners),nextPageToken"
+        });
+
+        const files: FileData[] = (response.data.files || []).map(f => ({
+          id: f.id || "",
+          name: f.name || "",
+          mimeType: f.mimeType || "",
+          createdTime: f.createdTime || undefined,
+          modifiedTime: f.modifiedTime || undefined,
+          size: f.size || undefined,
+          webViewLink: f.webViewLink || undefined,
+          owners: f.owners?.map(o => o.displayName || o.emailAddress || "Unknown")
+        }));
+
+        const output = {
+          files,
+          next_page_token: response.data.nextPageToken || null
+        };
+
+        let textOutput: string;
+        if (params.response_format === ResponseFormat.MARKDOWN) {
+          if (files.length === 0) {
+            textOutput = "No files found in Drive.";
+          } else {
+            const lines = [
+              `# Drive Files`,
+              "",
+              `Found ${files.length} file(s)${output.next_page_token ? " (more available)" : ""}.`,
+              ""
+            ];
+            for (const file of files) {
+              lines.push(formatFileForMarkdown(file), "");
+            }
+            if (output.next_page_token) {
+              lines.push(`*Use page_token="${output.next_page_token}" to load more files.*`);
+            }
+            textOutput = lines.join("\n");
+          }
+        } else {
+          textOutput = JSON.stringify(output, null, 2);
+        }
+
+        return {
+          content: [{ type: "text", text: textOutput }],
+          structuredContent: output
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "drive_search_files",
+    {
+      title: "Search Drive Files",
+      description: `Search for files in your Google Drive by name or content.
+
+Args:
+  - query (string): Search query - searches file names and content
+  - page_size (number): Max files to return, 1-100 (default: 20)
+  - page_token (string, optional): Pagination token for next page
+  - mime_type ('all' | 'documents' | 'spreadsheets' | 'presentations' | 'folders'): Filter by type (default: 'all')
+  - response_format ('markdown' | 'json'): Output format (default: 'markdown')
+
+Returns:
+  For JSON format:
+  {
+    "files": [
+      {
+        "id": string,
+        "name": string,
+        "mimeType": string,
+        "createdTime": string,
+        "modifiedTime": string,
+        "size": string,
+        "webViewLink": string,
+        "owners": string[]
+      }
+    ],
+    "next_page_token": string | null
+  }
+
+Examples:
+  - Search by name: query="budget 2024"
+  - Search spreadsheets: query="sales", mime_type="spreadsheets"`,
+      inputSchema: SearchFilesSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (params: SearchFilesInput) => {
+      try {
+        const drive = getDriveClient();
+
+        // Build search query - fullText searches name and content
+        let q = `trashed = false and fullText contains '${params.query.replace(/'/g, "\\'")}'`;
+        if (params.mime_type !== "all") {
+          const mimeType = MIME_TYPE_MAP[params.mime_type];
+          if (mimeType) {
+            q += ` and mimeType = '${mimeType}'`;
+          }
+        }
+
+        const response = await drive.files.list({
+          q,
+          pageSize: params.page_size,
+          pageToken: params.page_token,
+          fields: "files(id,name,mimeType,createdTime,modifiedTime,size,webViewLink,owners),nextPageToken"
+        });
+
+        const files: FileData[] = (response.data.files || []).map(f => ({
+          id: f.id || "",
+          name: f.name || "",
+          mimeType: f.mimeType || "",
+          createdTime: f.createdTime || undefined,
+          modifiedTime: f.modifiedTime || undefined,
+          size: f.size || undefined,
+          webViewLink: f.webViewLink || undefined,
+          owners: f.owners?.map(o => o.displayName || o.emailAddress || "Unknown")
+        }));
+
+        const output = {
+          files,
+          next_page_token: response.data.nextPageToken || null
+        };
+
+        let textOutput: string;
+        if (params.response_format === ResponseFormat.MARKDOWN) {
+          if (files.length === 0) {
+            textOutput = `No files found matching "${params.query}".`;
+          } else {
+            const lines = [
+              `# Search Results for "${params.query}"`,
+              "",
+              `Found ${files.length} file(s)${output.next_page_token ? " (more available)" : ""}.`,
+              ""
+            ];
+            for (const file of files) {
+              lines.push(formatFileForMarkdown(file), "");
+            }
+            if (output.next_page_token) {
+              lines.push(`*Use page_token="${output.next_page_token}" to load more results.*`);
+            }
+            textOutput = lines.join("\n");
+          }
+        } else {
+          textOutput = JSON.stringify(output, null, 2);
+        }
+
+        return {
+          content: [{ type: "text", text: textOutput }],
           structuredContent: output
         };
       } catch (error) {

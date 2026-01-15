@@ -32,3 +32,14 @@ export interface PaginatedResponse<T> {
   has_more: boolean;
   next_page_token?: string;
 }
+
+export interface FileData {
+  id: string;
+  name: string;
+  mimeType: string;
+  createdTime?: string;
+  modifiedTime?: string;
+  size?: string;
+  webViewLink?: string;
+  owners?: string[];
+}
