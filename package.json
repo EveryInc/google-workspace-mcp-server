@@ -1,6 +1,6 @@
 {
   "name": "google-workspace-mcp-server",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "MCP server for Google Workspace API integration (Docs, Sheets, and Drive Comments)",
   "type": "module",
   "main": "dist/index.js",

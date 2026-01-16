@@ -43,3 +43,57 @@ export interface FileData {
   webViewLink?: string;
   owners?: string[];
 }
+
+// Gmail types
+export interface MessageData {
+  id: string;
+  threadId: string;
+  from?: string;
+  to?: string;
+  subject?: string;
+  date?: string;
+  snippet?: string;
+  labels?: string[];
+  body?: string;
+}
+
+export interface ThreadData {
+  id: string;
+  subject: string;
+  from: string;
+  date: string;
+  snippet: string;
+  messageCount: number;
+}
+
+export interface LabelData {
+  id: string;
+  name: string;
+  type: string;
+}
+
+// Calendar types
+export interface CalendarData {
+  id: string;
+  summary: string;
+  description?: string;
+  primary: boolean;
+  accessRole: string;
+  backgroundColor?: string;
+}
+
+export interface EventData {
+  id: string;
+  summary: string;
+  description?: string;
+  location?: string;
+  start: string;
+  end: string;
+  startFormatted: string;
+  endFormatted: string;
+  status: string;
+  htmlLink?: string;
+  attendees?: string[];
+  organizer?: string;
+  isAllDay?: boolean;
+}

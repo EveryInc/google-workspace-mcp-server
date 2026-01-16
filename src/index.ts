@@ -13,15 +13,19 @@ import { initializeGoogleAuth } from "./services/google-auth.js";
 import { registerDocsTools } from "./tools/docs.js";
 import { registerDriveTools } from "./tools/drive.js";
 import { registerSheetsTools } from "./tools/sheets.js";
+import { registerGmailTools } from "./tools/gmail.js";
+import { registerCalendarTools } from "./tools/calendar.js";
 
 const server = new McpServer({
   name: "google-workspace-mcp-server",
-  version: "1.1.1"
+  version: "1.2.0"
 });
 
 registerDocsTools(server);
 registerDriveTools(server);
 registerSheetsTools(server);
+registerGmailTools(server);
+registerCalendarTools(server);
 
 async function main(): Promise<void> {
   try {

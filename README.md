@@ -1,6 +1,6 @@
 # Google Workspace MCP Server
 
-MCP server for Google Workspace APIs - Docs, Sheets, and Drive Comments. Use it with Claude Code to read, create, and edit Google Docs and Sheets, and manage comments.
+MCP server for Google Workspace APIs - Docs, Sheets, Drive, Gmail, and Calendar. Use it with Claude Code to read, create, and edit Google Docs and Sheets, manage comments, read emails, and view calendar events.
 
 ## Quick Start
 
@@ -42,6 +42,8 @@ MCP server for Google Workspace APIs - Docs, Sheets, and Drive Comments. Use it 
    - **Google Docs API** → Click → **Enable**
    - **Google Sheets API** → Click → **Enable**
    - **Google Drive API** → Click → **Enable**
+   - **Gmail API** → Click → **Enable**
+   - **Google Calendar API** → Click → **Enable**
 
 ### Step 3: Configure OAuth Consent Screen
 
@@ -88,6 +90,8 @@ MCP server for Google Workspace APIs - Docs, Sheets, and Drive Comments. Use it 
    - **Google Docs API v1** → `https://www.googleapis.com/auth/documents`
    - **Google Sheets API v4** → `https://www.googleapis.com/auth/spreadsheets`
    - **Google Drive API v3** → `https://www.googleapis.com/auth/drive`
+   - **Gmail API v1** → `https://www.googleapis.com/auth/gmail.readonly`
+   - **Google Calendar API v3** → `https://www.googleapis.com/auth/calendar.readonly`
 
 7. Click **Authorize APIs**
 
@@ -162,6 +166,24 @@ Restart Claude Code to load the new MCP server. You should now be able to use Go
 | `drive_resolve_comment` | Mark comment as resolved |
 | `drive_delete_comment` | Delete a comment |
 
+### Gmail API (Read-Only)
+
+| Tool | Description |
+|------|-------------|
+| `gmail_list_messages` | List messages with optional search filters |
+| `gmail_get_message` | Get full content of a specific message |
+| `gmail_list_threads` | List conversation threads |
+| `gmail_get_thread` | Get all messages in a thread |
+| `gmail_list_labels` | List all Gmail labels (folders) |
+
+### Google Calendar API (Read-Only)
+
+| Tool | Description |
+|------|-------------|
+| `calendar_list_calendars` | List all accessible calendars |
+| `calendar_list_events` | List events with time range and search filters |
+| `calendar_get_event` | Get detailed event information |
+
 ## Usage Examples
 
 Once configured, you can ask Claude Code things like:
@@ -173,6 +195,11 @@ Once configured, you can ask Claude Code things like:
 - "Search my Drive for files about project planning"
 - "Show me the comments on this document"
 - "Reply to John's comment saying I'll fix it tomorrow"
+- "Show me my unread emails"
+- "Find emails from notifications@github.com"
+- "What's on my calendar today?"
+- "Show me my meetings for this week"
+- "Get the details of that standup meeting"
 
 ## Troubleshooting
 
@@ -183,7 +210,7 @@ The MCP server automatically refreshes tokens using your refresh token. If you s
 This is normal for personal projects. Click **Advanced** → **Go to [App Name] (unsafe)** to proceed.
 
 ### "Insufficient permissions" errors
-Make sure you enabled all three APIs (Docs, Sheets, Drive) in Step 2, and selected all three scopes in Step 5.
+Make sure you enabled all five APIs (Docs, Sheets, Drive, Gmail, Calendar) in Step 2, and selected all five scopes in Step 5.
 
 ## Environment Variables
 
