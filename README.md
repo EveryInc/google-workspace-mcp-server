@@ -46,15 +46,18 @@ MCP server for Google Workspace APIs - Docs, Sheets, and Drive Comments. Use it 
 ### Step 3: Configure OAuth Consent Screen
 
 1. Go to **APIs & Services** → **OAuth consent screen**
-2. Select **External** → **Create**
-3. Fill in the required fields:
+2. Select user type:
+   - **Internal** (only if you have Google Workspace) - simpler, no test user setup needed
+   - **External** (for personal Gmail accounts) - requires adding yourself as a test user
+3. Click **Create**
+4. Fill in the required fields:
    - **App name**: "MCP Server" (or anything)
    - **User support email**: your email
    - **Developer contact email**: your email
-4. Click **Save and Continue**
-5. On **Scopes** page, click **Save and Continue** (no changes needed)
-6. On **Test users** page, click **Add Users** → add your Google email → **Save and Continue**
-7. Click **Back to Dashboard**
+5. Click **Save and Continue**
+6. On **Scopes** page, click **Save and Continue** (no changes needed)
+7. On **Test users** page (External only): click **Add Users** → add your Google email → **Save and Continue**
+8. Click **Back to Dashboard**
 
 ### Step 4: Create OAuth Credentials
 
