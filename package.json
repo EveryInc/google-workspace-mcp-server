@@ -1,18 +1,47 @@
 {
   "name": "google-workspace-mcp-server",
   "version": "1.0.0",
-  "description": "MCP server for Google Workspace API integration (Docs and Drive Comments)",
+  "description": "MCP server for Google Workspace API integration (Docs, Sheets, and Drive Comments)",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "google-workspace-mcp-server": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
   },
   "engines": {
     "node": ">=18"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "google-workspace",
+    "google-docs",
+    "google-sheets",
+    "google-drive",
+    "claude",
+    "anthropic",
+    "ai"
+  ],
+  "author": "Nityesh Agarwal",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nityeshaga/google-workspace-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nityeshaga/google-workspace-mcp-server/issues"
+  },
+  "homepage": "https://github.com/nityeshaga/google-workspace-mcp-server#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
     "google-auth-library": "^9.14.0",
