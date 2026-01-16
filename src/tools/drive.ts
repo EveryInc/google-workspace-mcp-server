@@ -1,5 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDriveClient, handleGoogleError } from "../services/google-auth.js";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import {
   ListCommentsSchema,
   CreateCommentSchema,
@@ -746,19 +749,17 @@ Examples:
 
         // Return as appropriate content type
         if (finalMimeType === "application/pdf") {
+          // Save PDF to temp file so Claude can read it with the Read tool
+          const tempDir = os.tmpdir();
+          const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
+          const tempPath = path.join(tempDir, `gdrive_${Date.now()}_${safeName}`);
+          fs.writeFileSync(tempPath, fileContent);
+
           return {
             content: [
               {
                 type: "text",
-                text: `File: ${fileName}\nType: ${finalMimeType}\nSize: ${formatFileSize(fileContent.length)}`
-              },
-              {
-                type: "resource",
-                resource: {
-                  uri: `data:${finalMimeType};base64,${base64Content}`,
-                  mimeType: finalMimeType,
-                  blob: base64Content
-                }
+                text: `File: ${fileName}\nType: ${finalMimeType}\nSize: ${formatFileSize(fileContent.length)}\n\nPDF saved to: ${tempPath}\n\nUse the Read tool to read this file.`
               }
             ]
           };
