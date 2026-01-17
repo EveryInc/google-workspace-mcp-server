@@ -12,6 +12,7 @@ import {
   ListFilesSchema,
   SearchFilesSchema,
   GetFileSchema,
+  CopyFileSchema,
   type ListCommentsInput,
   type CreateCommentInput,
   type ReplyToCommentInput,
@@ -19,7 +20,8 @@ import {
   type DeleteCommentInput,
   type ListFilesInput,
   type SearchFilesInput,
-  type GetFileInput
+  type GetFileInput,
+  type CopyFileInput
 } from "../schemas/drive.js";
 import { ResponseFormat } from "../constants.js";
 import type { CommentData, ReplyData, FileData } from "../types.js";
@@ -809,6 +811,80 @@ Examples:
             };
           }
         }
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "drive_copy_file",
+    {
+      title: "Copy Drive File",
+      description: `Create a copy of a file in Google Drive.
+
+Args:
+  - file_id (string): The ID of the file to copy
+  - name (string, optional): New name for the copied file (defaults to 'Copy of [original name]')
+  - parent_folder_id (string, optional): ID of the folder to copy the file into (defaults to same location as original)
+
+Returns:
+  {
+    "id": string,
+    "name": string,
+    "mimeType": string,
+    "webViewLink": string
+  }
+
+Examples:
+  - Copy file: file_id="1abc123"
+  - Copy with new name: file_id="1abc123", name="Budget 2025"
+  - Copy to folder: file_id="1abc123", parent_folder_id="0xyz789"`,
+      inputSchema: CopyFileSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    async (params: CopyFileInput) => {
+      try {
+        const drive = getDriveClient();
+
+        const requestBody: { name?: string; parents?: string[] } = {};
+
+        if (params.name) {
+          requestBody.name = params.name;
+        }
+        if (params.parent_folder_id) {
+          requestBody.parents = [params.parent_folder_id];
+        }
+
+        const response = await drive.files.copy({
+          fileId: params.file_id,
+          fields: "id,name,mimeType,webViewLink",
+          requestBody
+        });
+
+        const output = {
+          id: response.data.id || "",
+          name: response.data.name || "",
+          mimeType: response.data.mimeType || "",
+          webViewLink: response.data.webViewLink || ""
+        };
+
+        const typeDisplay = MIME_TYPE_DISPLAY[output.mimeType] || output.mimeType;
+
+        return {
+          content: [{
+            type: "text",
+            text: `File copied successfully.\n\n**Name**: ${output.name}\n**ID**: ${output.id}\n**Type**: ${typeDisplay}\n**Link**: ${output.webViewLink}`
+          }],
+          structuredContent: output
+        };
       } catch (error) {
         return {
           content: [{ type: "text", text: handleGoogleError(error) }]

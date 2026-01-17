@@ -4,9 +4,11 @@ import {
   ListCalendarsSchema,
   ListEventsSchema,
   GetEventSchema,
+  FreeBusyQuerySchema,
   type ListCalendarsInput,
   type ListEventsInput,
-  type GetEventInput
+  type GetEventInput,
+  type FreeBusyQueryInput
 } from "../schemas/calendar.js";
 import { ResponseFormat } from "../constants.js";
 import type { CalendarData, EventData } from "../types.js";
@@ -357,6 +359,117 @@ Returns:
 
           if (output.recurrence) {
             lines.push("", "## Recurrence", "", output.recurrence.join("\n"));
+          }
+
+          textOutput = lines.join("\n");
+        } else {
+          textOutput = JSON.stringify(output, null, 2);
+        }
+
+        return {
+          content: [{ type: "text", text: textOutput }],
+          structuredContent: output
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "calendar_freebusy_query",
+    {
+      title: "Check Free/Busy Status",
+      description: `Check availability (free/busy times) for one or more calendars within a time range.
+
+This is useful for finding available meeting times across multiple people. It only returns busy time blocks (not event details) for privacy.
+
+Args:
+  - time_min (string): Start of the time range (ISO 8601 format, e.g., '2024-01-15T00:00:00Z')
+  - time_max (string): End of the time range (ISO 8601 format, e.g., '2024-01-22T00:00:00Z')
+  - calendar_ids (string[]): Array of calendar IDs or email addresses to check (e.g., ['primary', 'colleague@company.com'])
+  - response_format ('markdown' | 'json'): Output format (default: 'markdown')
+
+Returns:
+  For each calendar, a list of busy time blocks within the range.
+
+Requirements for checking other people's calendars:
+  - Same Google Workspace organization, OR
+  - They have shared their calendar with you, OR
+  - Their calendar is public
+
+Examples:
+  - Check your availability: calendar_ids=["primary"], time_min="2024-01-15T09:00:00Z", time_max="2024-01-15T18:00:00Z"
+  - Check team availability: calendar_ids=["alice@company.com", "bob@company.com"]`,
+      inputSchema: FreeBusyQuerySchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (params: FreeBusyQueryInput) => {
+      try {
+        const calendar = getCalendarClient();
+
+        const response = await calendar.freebusy.query({
+          requestBody: {
+            timeMin: params.time_min,
+            timeMax: params.time_max,
+            items: params.calendar_ids.map(id => ({ id }))
+          }
+        });
+
+        const calendars: Record<string, { busy: { start: string; end: string }[]; errors?: string[] }> = {};
+
+        for (const [calId, data] of Object.entries(response.data.calendars || {})) {
+          calendars[calId] = {
+            busy: (data.busy || []).map(b => ({
+              start: b.start || "",
+              end: b.end || ""
+            })),
+            errors: data.errors?.map(e => e.reason || "Unknown error")
+          };
+        }
+
+        const output = {
+          timeMin: params.time_min,
+          timeMax: params.time_max,
+          calendars
+        };
+
+        let textOutput: string;
+        if (params.response_format === ResponseFormat.MARKDOWN) {
+          const timeRange = `${formatDateTime(params.time_min, null)} to ${formatDateTime(params.time_max, null)}`;
+          const lines = [
+            "# Free/Busy Query Results",
+            "",
+            `**Time Range**: ${timeRange}`,
+            ""
+          ];
+
+          for (const [calId, data] of Object.entries(calendars)) {
+            lines.push(`## ${calId}`, "");
+
+            if (data.errors && data.errors.length > 0) {
+              lines.push(`**Error**: ${data.errors.join(", ")}`, "");
+              continue;
+            }
+
+            if (data.busy.length === 0) {
+              lines.push("No busy time blocks - fully available during this period.", "");
+            } else {
+              lines.push(`${data.busy.length} busy period(s):`, "");
+              for (const block of data.busy) {
+                const start = formatDateTime(block.start, null);
+                const end = formatDateTime(block.end, null);
+                lines.push(`- ${start} → ${end}`);
+              }
+              lines.push("");
+            }
           }
 
           textOutput = lines.join("\n");

@@ -9,6 +9,7 @@ import {
   CreateSpreadsheetSchema,
   BatchUpdateSpreadsheetSchema,
   ClearValuesSchema,
+  DuplicateSheetSchema,
   type GetSpreadsheetInput,
   type GetValuesInput,
   type BatchGetValuesInput,
@@ -16,7 +17,8 @@ import {
   type AppendValuesInput,
   type CreateSpreadsheetInput,
   type BatchUpdateSpreadsheetInput,
-  type ClearValuesInput
+  type ClearValuesInput,
+  type DuplicateSheetInput
 } from "../schemas/sheets.js";
 import { ResponseFormat, CHARACTER_LIMIT } from "../constants.js";
 import type { sheets_v4 } from "googleapis";
@@ -618,6 +620,77 @@ Examples:
           content: [{
             type: "text",
             text: `Values cleared successfully.\n\n**Cleared range**: ${output.clearedRange}`
+          }],
+          structuredContent: output
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "sheets_duplicate_sheet",
+    {
+      title: "Duplicate Sheet",
+      description: `Duplicate a sheet within the same spreadsheet.
+
+Args:
+  - spreadsheet_id (string): The ID of the Google Spreadsheet
+  - sheet_id (number): The ID of the sheet to duplicate (use sheets_get_spreadsheet to find sheet IDs)
+  - new_sheet_name (string, optional): Name for the new sheet (defaults to 'Copy of [original name]')
+
+Returns:
+  {
+    "sheetId": number,
+    "title": string,
+    "index": number
+  }
+
+Examples:
+  - Duplicate sheet: spreadsheet_id="...", sheet_id=0
+  - Duplicate with new name: spreadsheet_id="...", sheet_id=0, new_sheet_name="January Data"`,
+      inputSchema: DuplicateSheetSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    async (params: DuplicateSheetInput) => {
+      try {
+        const sheets = getSheetsClient();
+
+        const request: sheets_v4.Schema$DuplicateSheetRequest = {
+          sourceSheetId: params.sheet_id
+        };
+
+        if (params.new_sheet_name) {
+          request.newSheetName = params.new_sheet_name;
+        }
+
+        const response = await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: params.spreadsheet_id,
+          requestBody: {
+            requests: [{ duplicateSheet: request }]
+          }
+        });
+
+        const reply = response.data.replies?.[0]?.duplicateSheet?.properties;
+
+        const output = {
+          sheetId: reply?.sheetId,
+          title: reply?.title || params.new_sheet_name || "Copy",
+          index: reply?.index || 0
+        };
+
+        return {
+          content: [{
+            type: "text",
+            text: `Sheet duplicated successfully.\n\n**New Sheet Name**: ${output.title}\n**Sheet ID**: ${output.sheetId}`
           }],
           structuredContent: output
         };

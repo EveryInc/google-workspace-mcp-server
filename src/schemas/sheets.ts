@@ -119,3 +119,17 @@ export const ClearValuesSchema = z.object({
 }).strict();
 
 export type ClearValuesInput = z.infer<typeof ClearValuesSchema>;
+
+export const DuplicateSheetSchema = z.object({
+  spreadsheet_id: z.string()
+    .min(1, "Spreadsheet ID is required")
+    .describe("The ID of the Google Spreadsheet"),
+  sheet_id: z.number()
+    .int()
+    .describe("The ID of the sheet to duplicate (use sheets_get_spreadsheet to find sheet IDs)"),
+  new_sheet_name: z.string()
+    .optional()
+    .describe("Name for the new sheet (defaults to 'Copy of [original name]')")
+}).strict();
+
+export type DuplicateSheetInput = z.infer<typeof DuplicateSheetSchema>;

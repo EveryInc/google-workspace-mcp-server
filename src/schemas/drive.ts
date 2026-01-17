@@ -127,3 +127,17 @@ export const GetFileSchema = z.object({
 }).strict();
 
 export type GetFileInput = z.infer<typeof GetFileSchema>;
+
+export const CopyFileSchema = z.object({
+  file_id: z.string()
+    .min(1, "File ID is required")
+    .describe("The ID of the file to copy"),
+  name: z.string()
+    .optional()
+    .describe("New name for the copied file (defaults to 'Copy of [original name]')"),
+  parent_folder_id: z.string()
+    .optional()
+    .describe("ID of the folder to copy the file into (defaults to same location as original)")
+}).strict();
+
+export type CopyFileInput = z.infer<typeof CopyFileSchema>;

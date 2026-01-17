@@ -91,6 +91,7 @@ MCP server for Google Workspace APIs - Docs, Sheets, Drive, Gmail, and Calendar.
    - **Google Sheets API v4** → `https://www.googleapis.com/auth/spreadsheets`
    - **Google Drive API v3** → `https://www.googleapis.com/auth/drive`
    - **Gmail API v1** → `https://www.googleapis.com/auth/gmail.readonly`
+   - **Gmail API v1** → `https://www.googleapis.com/auth/gmail.compose` (for creating drafts)
    - **Google Calendar API v3** → `https://www.googleapis.com/auth/calendar.readonly`
 
 7. Click **Authorize APIs**
@@ -152,6 +153,7 @@ Restart Claude Code to load the new MCP server. You should now be able to use Go
 | `sheets_create_spreadsheet` | Create a new spreadsheet |
 | `sheets_batch_update` | Apply formatting, charts, filters |
 | `sheets_clear_values` | Clear cell values from a range |
+| `sheets_duplicate_sheet` | Duplicate a sheet within a spreadsheet |
 
 ### Google Drive API
 
@@ -160,13 +162,14 @@ Restart Claude Code to load the new MCP server. You should now be able to use Go
 | `drive_get_file` | Download file content (PDFs, images, etc.) |
 | `drive_list_files` | List files in your Drive |
 | `drive_search_files` | Search for files by name or content |
+| `drive_copy_file` | Create a copy of a file |
 | `drive_list_comments` | List comments on a document |
 | `drive_create_comment` | Add a comment (anchored or unanchored) |
 | `drive_reply_to_comment` | Reply to an existing comment |
 | `drive_resolve_comment` | Mark comment as resolved |
 | `drive_delete_comment` | Delete a comment |
 
-### Gmail API (Read-Only)
+### Gmail API
 
 | Tool | Description |
 |------|-------------|
@@ -175,6 +178,9 @@ Restart Claude Code to load the new MCP server. You should now be able to use Go
 | `gmail_list_threads` | List conversation threads |
 | `gmail_get_thread` | Get all messages in a thread |
 | `gmail_list_labels` | List all Gmail labels (folders) |
+| `gmail_create_draft` | Create an email draft (not sent automatically) |
+| `gmail_list_attachments` | List attachments in a message |
+| `gmail_get_attachment` | Download an attachment |
 
 ### Google Calendar API (Read-Only)
 
@@ -183,6 +189,7 @@ Restart Claude Code to load the new MCP server. You should now be able to use Go
 | `calendar_list_calendars` | List all accessible calendars |
 | `calendar_list_events` | List events with time range and search filters |
 | `calendar_get_event` | Get detailed event information |
+| `calendar_freebusy_query` | Check free/busy availability for calendars |
 
 ## Usage Examples
 

@@ -57,3 +57,18 @@ export const GetEventSchema = z.object({
 }).strict();
 
 export type GetEventInput = z.infer<typeof GetEventSchema>;
+
+export const FreeBusyQuerySchema = z.object({
+  time_min: z.string()
+    .describe("Start of the time range (ISO 8601 format, e.g., '2024-01-15T00:00:00Z')"),
+  time_max: z.string()
+    .describe("End of the time range (ISO 8601 format, e.g., '2024-01-22T00:00:00Z')"),
+  calendar_ids: z.array(z.string())
+    .min(1, "At least one calendar ID or email is required")
+    .describe("Array of calendar IDs or email addresses to check (e.g., ['primary', 'colleague@company.com'])"),
+  response_format: z.nativeEnum(ResponseFormat)
+    .default(ResponseFormat.MARKDOWN)
+    .describe("Output format: 'markdown' or 'json'")
+}).strict();
+
+export type FreeBusyQueryInput = z.infer<typeof FreeBusyQuerySchema>;

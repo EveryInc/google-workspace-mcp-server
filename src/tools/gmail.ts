@@ -7,11 +7,17 @@ import {
   ListThreadsSchema,
   GetThreadSchema,
   ListLabelsSchema,
+  CreateDraftSchema,
+  GetAttachmentSchema,
+  ListAttachmentsSchema,
   type ListMessagesInput,
   type GetMessageInput,
   type ListThreadsInput,
   type GetThreadInput,
-  type ListLabelsInput
+  type ListLabelsInput,
+  type CreateDraftInput,
+  type GetAttachmentInput,
+  type ListAttachmentsInput
 } from "../schemas/gmail.js";
 import { ResponseFormat } from "../constants.js";
 import type { MessageData, ThreadData, LabelData } from "../types.js";
@@ -570,6 +576,328 @@ Returns:
           content: [{ type: "text", text: textOutput }],
           structuredContent: output
         };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "gmail_create_draft",
+    {
+      title: "Create Gmail Draft",
+      description: `Create a new email draft in Gmail. The draft is saved but NOT sent automatically.
+
+Args:
+  - to (string[]): Array of recipient email addresses (required)
+  - subject (string): Email subject line
+  - body (string): Email body content (plain text)
+  - cc (string[], optional): Array of CC recipient email addresses
+  - bcc (string[], optional): Array of BCC recipient email addresses
+  - reply_to_message_id (string, optional): Message ID to reply to (for creating reply drafts)
+
+Returns:
+  {
+    "draftId": string,
+    "messageId": string,
+    "threadId": string
+  }
+
+Examples:
+  - Simple draft: to=["bob@example.com"], subject="Hello", body="Hi Bob!"
+  - Reply draft: to=["bob@example.com"], subject="Re: Meeting", body="Sounds good!", reply_to_message_id="abc123"`,
+      inputSchema: CreateDraftSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    async (params: CreateDraftInput) => {
+      try {
+        const gmail = getGmailClient();
+
+        // Build email headers
+        const headers = [
+          `To: ${params.to.join(", ")}`,
+          `Subject: ${params.subject}`
+        ];
+
+        if (params.cc && params.cc.length > 0) {
+          headers.push(`Cc: ${params.cc.join(", ")}`);
+        }
+        if (params.bcc && params.bcc.length > 0) {
+          headers.push(`Bcc: ${params.bcc.join(", ")}`);
+        }
+
+        // Build raw email message
+        const emailLines = [
+          ...headers,
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          params.body
+        ];
+
+        const rawMessage = Buffer.from(emailLines.join("\r\n"))
+          .toString("base64")
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+
+        const requestBody: { message: { raw: string; threadId?: string } } = {
+          message: { raw: rawMessage }
+        };
+
+        // If replying to a message, include the thread ID
+        if (params.reply_to_message_id) {
+          const originalMsg = await gmail.users.messages.get({
+            userId: "me",
+            id: params.reply_to_message_id,
+            format: "minimal"
+          });
+          if (originalMsg.data.threadId) {
+            requestBody.message.threadId = originalMsg.data.threadId;
+          }
+        }
+
+        const response = await gmail.users.drafts.create({
+          userId: "me",
+          requestBody
+        });
+
+        const output = {
+          draftId: response.data.id || "",
+          messageId: response.data.message?.id || "",
+          threadId: response.data.message?.threadId || ""
+        };
+
+        return {
+          content: [{
+            type: "text",
+            text: `Draft created successfully.\n\n**Draft ID**: ${output.draftId}\n**To**: ${params.to.join(", ")}\n**Subject**: ${params.subject}\n\nThe draft is saved in your Gmail Drafts folder. It will NOT be sent automatically.`
+          }],
+          structuredContent: output
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "gmail_list_attachments",
+    {
+      title: "List Gmail Attachments",
+      description: `List all attachments in a specific Gmail message.
+
+Args:
+  - message_id (string): The ID of the message to list attachments from
+  - response_format ('markdown' | 'json'): Output format (default: 'markdown')
+
+Returns:
+  {
+    "attachments": [
+      {
+        "attachmentId": string,
+        "filename": string,
+        "mimeType": string,
+        "size": number
+      }
+    ]
+  }`,
+      inputSchema: ListAttachmentsSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (params: ListAttachmentsInput) => {
+      try {
+        const gmail = getGmailClient();
+
+        const response = await gmail.users.messages.get({
+          userId: "me",
+          id: params.message_id,
+          format: "full"
+        });
+
+        const attachments: { attachmentId: string; filename: string; mimeType: string; size: number }[] = [];
+
+        function extractAttachments(parts: gmail_v1.Schema$MessagePart[] | undefined) {
+          if (!parts) return;
+          for (const part of parts) {
+            if (part.filename && part.body?.attachmentId) {
+              attachments.push({
+                attachmentId: part.body.attachmentId,
+                filename: part.filename,
+                mimeType: part.mimeType || "application/octet-stream",
+                size: part.body.size || 0
+              });
+            }
+            if (part.parts) {
+              extractAttachments(part.parts);
+            }
+          }
+        }
+
+        extractAttachments(response.data.payload?.parts);
+
+        const output = { attachments };
+
+        let textOutput: string;
+        if (params.response_format === ResponseFormat.MARKDOWN) {
+          if (attachments.length === 0) {
+            textOutput = "No attachments found in this message.";
+          } else {
+            const lines = [
+              "# Message Attachments",
+              "",
+              `Found ${attachments.length} attachment(s).`,
+              ""
+            ];
+            for (const att of attachments) {
+              const sizeKb = (att.size / 1024).toFixed(1);
+              lines.push(
+                `### ${att.filename}`,
+                `- **Type**: ${att.mimeType}`,
+                `- **Size**: ${sizeKb} KB`,
+                `- **Attachment ID**: \`${att.attachmentId}\``,
+                ""
+              );
+            }
+            textOutput = lines.join("\n");
+          }
+        } else {
+          textOutput = JSON.stringify(output, null, 2);
+        }
+
+        return {
+          content: [{ type: "text", text: textOutput }],
+          structuredContent: output
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "gmail_get_attachment",
+    {
+      title: "Get Gmail Attachment",
+      description: `Download an attachment from a Gmail message.
+
+Args:
+  - message_id (string): The ID of the message containing the attachment
+  - attachment_id (string): The ID of the attachment to download (from gmail_list_attachments)
+  - filename (string, optional): Filename for the attachment (for display purposes)
+
+Returns:
+  The attachment content. For images, returns the image directly. For other files, provides download info.
+
+Examples:
+  - Download attachment: message_id="abc123", attachment_id="xyz789"`,
+      inputSchema: GetAttachmentSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (params: GetAttachmentInput) => {
+      try {
+        const gmail = getGmailClient();
+
+        const response = await gmail.users.messages.attachments.get({
+          userId: "me",
+          messageId: params.message_id,
+          id: params.attachment_id
+        });
+
+        const data = response.data.data;
+        if (!data) {
+          return {
+            content: [{ type: "text", text: "Error: Attachment data is empty." }]
+          };
+        }
+
+        // Decode base64url to regular base64
+        const base64Data = data.replace(/-/g, "+").replace(/_/g, "/");
+        const buffer = Buffer.from(base64Data, "base64");
+
+        const filename = params.filename || "attachment";
+        const size = response.data.size || buffer.length;
+
+        // Determine mime type from filename
+        const ext = filename.toLowerCase().split(".").pop() || "";
+        const mimeTypes: Record<string, string> = {
+          pdf: "application/pdf",
+          png: "image/png",
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+          gif: "image/gif",
+          txt: "text/plain",
+          csv: "text/csv",
+          json: "application/json",
+          doc: "application/msword",
+          docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          xls: "application/vnd.ms-excel",
+          xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        };
+        const mimeType = mimeTypes[ext] || "application/octet-stream";
+
+        // Return appropriate content based on type
+        if (mimeType.startsWith("image/")) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `**Attachment**: ${filename}\n**Size**: ${(size / 1024).toFixed(1)} KB\n**Type**: ${mimeType}`
+              },
+              {
+                type: "image",
+                data: base64Data,
+                mimeType: mimeType
+              }
+            ]
+          };
+        } else if (mimeType === "text/plain" || mimeType === "text/csv" || mimeType === "application/json") {
+          // Return text content
+          const textContent = buffer.toString("utf-8");
+          return {
+            content: [{
+              type: "text",
+              text: `**Attachment**: ${filename}\n**Size**: ${(size / 1024).toFixed(1)} KB\n**Type**: ${mimeType}\n\n---\n\n${textContent}`
+            }]
+          };
+        } else {
+          // For binary files, save to temp and return path
+          const os = await import("os");
+          const path = await import("path");
+          const fs = await import("fs");
+
+          const tempDir = os.tmpdir();
+          const safeName = filename.replace(/[^a-zA-Z0-9.-]/g, "_");
+          const tempPath = path.join(tempDir, `gmail_${Date.now()}_${safeName}`);
+          fs.writeFileSync(tempPath, buffer);
+
+          return {
+            content: [{
+              type: "text",
+              text: `**Attachment**: ${filename}\n**Size**: ${(size / 1024).toFixed(1)} KB\n**Type**: ${mimeType}\n\nFile saved to: ${tempPath}\n\nUse the Read tool to access this file.`
+            }]
+          };
+        }
       } catch (error) {
         return {
           content: [{ type: "text", text: handleGoogleError(error) }]
