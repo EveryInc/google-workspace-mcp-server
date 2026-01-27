@@ -133,7 +133,7 @@ async function getSheetIdByName(
     s => s.properties?.title === sheetName
   );
 
-  if (!sheet?.properties?.sheetId) {
+  if (!sheet || sheet.properties?.sheetId === undefined || sheet.properties?.sheetId === null) {
     throw new Error(`Sheet "${sheetName}" not found in spreadsheet`);
   }
 
@@ -182,17 +182,16 @@ function buildPivotGroup(group: PivotGroupInput): sheets_v4.Schema$PivotGroup {
     pivotGroup.label = group.label;
   }
 
-  if (group.sort_order) {
-    pivotGroup.sortOrder = group.sort_order;
-  }
+  // Set sort order (default to ASCENDING)
+  pivotGroup.sortOrder = group.sort_order || "ASCENDING";
 
   // Sort by value (instead of alphabetically)
   if (group.sort_by_value) {
     pivotGroup.valueBucket = {
       valuesIndex: group.sort_by_value.value_index
     };
-  } else if (group.sort_order) {
-    // Empty valueBucket = sort alphabetically
+  } else {
+    // Empty valueBucket = sort alphabetically by group name
     pivotGroup.valueBucket = {};
   }
 
