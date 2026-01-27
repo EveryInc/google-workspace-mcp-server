@@ -10,6 +10,7 @@ import {
   BatchUpdateSpreadsheetSchema,
   ClearValuesSchema,
   DuplicateSheetSchema,
+  CreatePivotTableSchema,
   type GetSpreadsheetInput,
   type GetValuesInput,
   type BatchGetValuesInput,
@@ -18,7 +19,12 @@ import {
   type CreateSpreadsheetInput,
   type BatchUpdateSpreadsheetInput,
   type ClearValuesInput,
-  type DuplicateSheetInput
+  type DuplicateSheetInput,
+  type CreatePivotTableInput,
+  type PivotGroupInput,
+  type PivotValueInput,
+  type PivotFilterInput,
+  type GroupRuleInput
 } from "../schemas/sheets.js";
 import { ResponseFormat, CHARACTER_LIMIT } from "../constants.js";
 import type { sheets_v4 } from "googleapis";
@@ -53,6 +59,196 @@ function formatSheetInfo(sheet: sheets_v4.Schema$Sheet): string {
     `  - Rows: ${props.gridProperties?.rowCount || 0}`,
     `  - Columns: ${props.gridProperties?.columnCount || 0}`
   ].join("\n");
+}
+
+// Helper: Convert column letter to 0-based index (A=0, B=1, AA=26)
+function columnLetterToIndex(letter: string): number {
+  let index = 0;
+  const upper = letter.toUpperCase();
+  for (let i = 0; i < upper.length; i++) {
+    index = index * 26 + (upper.charCodeAt(i) - 64);
+  }
+  return index - 1;
+}
+
+// Helper: Convert source_column (number or letter) to 0-based index
+function resolveColumnIndex(column: number | string): number {
+  if (typeof column === "number") {
+    return column;
+  }
+  return columnLetterToIndex(column);
+}
+
+// Helper: Parse A1 notation to extract sheet name and range bounds
+function parseA1Range(range: string): {
+  sheetName: string;
+  startCol: number;
+  startRow: number;
+  endCol: number;
+  endRow: number;
+} {
+  // Handle "Sheet1!A1:E100" or "A1:E100"
+  let sheetName = "";
+  let rangeOnly = range;
+
+  if (range.includes("!")) {
+    const parts = range.split("!");
+    sheetName = parts[0].replace(/^'|'$/g, ""); // Remove quotes if present
+    rangeOnly = parts[1];
+  }
+
+  // Parse range like "A1:E100" or "A:E" or "A1:E"
+  const rangeParts = rangeOnly.split(":");
+  const startRef = rangeParts[0];
+  const endRef = rangeParts[1] || startRef;
+
+  // Extract column letters and row numbers
+  const startMatch = startRef.match(/^([A-Z]+)(\d*)$/i);
+  const endMatch = endRef.match(/^([A-Z]+)(\d*)$/i);
+
+  if (!startMatch || !endMatch) {
+    throw new Error(`Invalid range format: ${range}`);
+  }
+
+  const startCol = columnLetterToIndex(startMatch[1]);
+  const endCol = columnLetterToIndex(endMatch[1]);
+  const startRow = startMatch[2] ? parseInt(startMatch[2], 10) - 1 : 0;
+  const endRow = endMatch[2] ? parseInt(endMatch[2], 10) : 1000; // Default to 1000 rows if not specified
+
+  return { sheetName, startCol, startRow, endCol: endCol + 1, endRow };
+}
+
+// Helper: Get sheet ID by name
+async function getSheetIdByName(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetName: string
+): Promise<number> {
+  const response = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets.properties"
+  });
+
+  const sheet = (response.data.sheets || []).find(
+    s => s.properties?.title === sheetName
+  );
+
+  if (!sheet?.properties?.sheetId) {
+    throw new Error(`Sheet "${sheetName}" not found in spreadsheet`);
+  }
+
+  return sheet.properties.sheetId;
+}
+
+// Helper: Build group rule for pivot table
+function buildGroupRule(rule: GroupRuleInput): sheets_v4.Schema$PivotGroupRule {
+  if ("date_time" in rule) {
+    return { dateTimeRule: { type: rule.date_time.type } };
+  }
+  if ("histogram" in rule) {
+    return {
+      histogramRule: {
+        interval: rule.histogram.interval,
+        start: rule.histogram.start,
+        end: rule.histogram.end
+      }
+    };
+  }
+  if ("manual" in rule) {
+    return {
+      manualRule: {
+        groups: rule.manual.groups.map(g => ({
+          groupName: { stringValue: g.group_name },
+          items: g.items.map(item =>
+            typeof item === "string"
+              ? { stringValue: item }
+              : { numberValue: item }
+          )
+        }))
+      }
+    };
+  }
+  throw new Error("Invalid group rule");
+}
+
+// Helper: Build pivot group
+function buildPivotGroup(group: PivotGroupInput): sheets_v4.Schema$PivotGroup {
+  const pivotGroup: sheets_v4.Schema$PivotGroup = {
+    sourceColumnOffset: resolveColumnIndex(group.source_column),
+    showTotals: group.show_totals
+  };
+
+  if (group.label) {
+    pivotGroup.label = group.label;
+  }
+
+  if (group.sort_order) {
+    pivotGroup.sortOrder = group.sort_order;
+  }
+
+  // Sort by value (instead of alphabetically)
+  if (group.sort_by_value) {
+    pivotGroup.valueBucket = {
+      valuesIndex: group.sort_by_value.value_index
+    };
+  } else if (group.sort_order) {
+    // Empty valueBucket = sort alphabetically
+    pivotGroup.valueBucket = {};
+  }
+
+  if (group.group_rule) {
+    pivotGroup.groupRule = buildGroupRule(group.group_rule);
+  }
+
+  if (group.group_limit) {
+    pivotGroup.groupLimit = { countLimit: group.group_limit };
+  }
+
+  return pivotGroup;
+}
+
+// Helper: Build pivot value
+function buildPivotValue(val: PivotValueInput): sheets_v4.Schema$PivotValue {
+  const pivotValue: sheets_v4.Schema$PivotValue = {
+    summarizeFunction: val.summarize_function
+  };
+
+  if (val.source_column !== undefined) {
+    pivotValue.sourceColumnOffset = resolveColumnIndex(val.source_column);
+  } else if (val.formula) {
+    pivotValue.formula = val.formula;
+  }
+
+  if (val.name) {
+    pivotValue.name = val.name;
+  }
+
+  if (val.calculated_display_type) {
+    pivotValue.calculatedDisplayType = val.calculated_display_type;
+  }
+
+  return pivotValue;
+}
+
+// Helper: Build pivot filters
+function buildPivotFilters(filters: PivotFilterInput[]): sheets_v4.Schema$PivotFilterSpec[] {
+  return filters.map(filter => {
+    const spec: sheets_v4.Schema$PivotFilterSpec = {
+      columnOffsetIndex: resolveColumnIndex(filter.source_column),
+      filterCriteria: {}
+    };
+
+    if (filter.visible_values) {
+      spec.filterCriteria!.visibleValues = filter.visible_values;
+    } else if (filter.condition) {
+      spec.filterCriteria!.condition = {
+        type: filter.condition.type,
+        values: filter.condition.values?.map(v => ({ userEnteredValue: String(v) }))
+      };
+    }
+
+    return spec;
+  });
 }
 
 export function registerSheetsTools(server: McpServer): void {
@@ -691,6 +887,172 @@ Examples:
           content: [{
             type: "text",
             text: `Sheet duplicated successfully.\n\n**New Sheet Name**: ${output.title}\n**Sheet ID**: ${output.sheetId}`
+          }],
+          structuredContent: output
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: handleGoogleError(error) }]
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "sheets_create_pivot_table",
+    {
+      title: "Create Pivot Table",
+      description: `Create a pivot table from spreadsheet data with full Google Sheets UI feature support.
+
+Args:
+  - spreadsheet_id (string): The ID of the Google Spreadsheet
+  - source_range (string): A1 notation range (e.g., 'Sheet1!A1:E100', 'Sales!A:F')
+  - destination_sheet_id (number, optional): Sheet ID for pivot (default: creates new sheet)
+  - destination_sheet_name (string): Name for new sheet (default: 'Pivot Table')
+
+  - rows/columns (array): Groupings (at least one row OR column required)
+    - source_column: Column letter ('A') or index (0)
+    - label: Custom display name
+    - show_totals: Show subtotals (default: true)
+    - sort_order: 'ASCENDING' or 'DESCENDING'
+    - sort_by_value: { value_index: 0 } - Sort by aggregated value instead of alphabetically
+    - group_rule: Bucketing options (pick one):
+      - { date_time: { type: 'MONTH' } } - Group dates (YEAR, QUARTER, MONTH, DAY_OF_WEEK, etc.)
+      - { histogram: { interval: 100, start: 0, end: 1000 } } - Numeric buckets
+      - { manual: { groups: [{ group_name: 'West', items: ['CA', 'WA', 'OR'] }] } }
+    - group_limit: Max groups to display
+
+  - values (array, required): Aggregations
+    - source_column: Column to aggregate (or use formula)
+    - formula: Custom formula like '=Revenue/Quantity' (use with summarize_function: 'CUSTOM')
+    - summarize_function: SUM, COUNT, COUNTA, COUNTUNIQUE, AVERAGE, MAX, MIN, MEDIAN, PRODUCT, STDEV, STDEVP, VAR, VARP, CUSTOM
+    - name: Display name
+    - calculated_display_type: 'PERCENT_OF_ROW_TOTAL', 'PERCENT_OF_COLUMN_TOTAL', 'PERCENT_OF_GRAND_TOTAL'
+
+  - filters (array, optional): Filter source data
+    - source_column: Column to filter
+    - visible_values: ['Active', 'Pending'] - Show only these values
+    - condition: { type: 'NUMBER_GREATER', values: [100] } - Filter by condition
+
+  - value_layout: 'HORIZONTAL' or 'VERTICAL' (default: 'HORIZONTAL')
+
+Examples:
+  - Date grouped: rows=[{source_column: "A", group_rule: {date_time: {type: "MONTH"}}}], values=[{source_column: "E", summarize_function: "SUM"}]
+  - Sorted by value: rows=[{source_column: "A", sort_by_value: {value_index: 0}, sort_order: "DESCENDING"}], values=[{source_column: "E", summarize_function: "SUM"}]
+  - Filtered: filters=[{source_column: "B", visible_values: ["Active"]}], rows=[{source_column: "A"}], values=[{source_column: "E", summarize_function: "SUM"}]
+  - Percentage: values=[{source_column: "E", summarize_function: "SUM", calculated_display_type: "PERCENT_OF_GRAND_TOTAL"}]`,
+      inputSchema: CreatePivotTableSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    async (params: CreatePivotTableInput) => {
+      try {
+        const sheets = getSheetsClient();
+
+        // Parse the source range
+        const parsedRange = parseA1Range(params.source_range);
+
+        // Get the source sheet ID
+        let sourceSheetId: number;
+        if (parsedRange.sheetName) {
+          sourceSheetId = await getSheetIdByName(sheets, params.spreadsheet_id, parsedRange.sheetName);
+        } else {
+          const spreadsheet = await sheets.spreadsheets.get({
+            spreadsheetId: params.spreadsheet_id,
+            fields: "sheets.properties"
+          });
+          sourceSheetId = spreadsheet.data.sheets?.[0]?.properties?.sheetId || 0;
+        }
+
+        // Determine destination sheet ID
+        let destinationSheetId = params.destination_sheet_id;
+        let destinationSheetName = params.destination_sheet_name;
+
+        // If no destination sheet ID provided, create a new sheet first
+        if (destinationSheetId === undefined) {
+          const addSheetResponse = await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: params.spreadsheet_id,
+            requestBody: {
+              requests: [{
+                addSheet: {
+                  properties: {
+                    title: destinationSheetName
+                  }
+                }
+              }]
+            }
+          });
+
+          const newSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId;
+          destinationSheetName = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || destinationSheetName;
+
+          if (newSheetId === undefined || newSheetId === null) {
+            throw new Error("Failed to create destination sheet");
+          }
+          destinationSheetId = newSheetId;
+        }
+
+        // Build pivot groups using helper functions
+        const pivotRows = (params.rows || []).map(buildPivotGroup);
+        const pivotColumns = (params.columns || []).map(buildPivotGroup);
+        const pivotValues = params.values.map(buildPivotValue);
+        const pivotFilters = params.filters ? buildPivotFilters(params.filters) : undefined;
+
+        // Build the pivot table object
+        const pivotTable: sheets_v4.Schema$PivotTable = {
+          source: {
+            sheetId: sourceSheetId,
+            startRowIndex: parsedRange.startRow,
+            startColumnIndex: parsedRange.startCol,
+            endRowIndex: parsedRange.endRow,
+            endColumnIndex: parsedRange.endCol
+          },
+          rows: pivotRows.length > 0 ? pivotRows : undefined,
+          columns: pivotColumns.length > 0 ? pivotColumns : undefined,
+          values: pivotValues,
+          valueLayout: params.value_layout,
+          filterSpecs: pivotFilters
+        };
+
+        // Create the pivot table
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: params.spreadsheet_id,
+          requestBody: {
+            requests: [{
+              updateCells: {
+                rows: [{
+                  values: [{ pivotTable }]
+                }],
+                start: {
+                  sheetId: destinationSheetId,
+                  rowIndex: 0,
+                  columnIndex: 0
+                },
+                fields: "pivotTable"
+              }
+            }]
+          }
+        });
+
+        const output = {
+          spreadsheetId: params.spreadsheet_id,
+          pivotTableSheetId: destinationSheetId,
+          pivotTableSheetName: destinationSheetName,
+          sourceRange: params.source_range,
+          rowGroups: pivotRows.length,
+          columnGroups: pivotColumns.length,
+          valueAggregations: pivotValues.length,
+          filters: params.filters?.length || 0
+        };
+
+        return {
+          content: [{
+            type: "text",
+            text: `Pivot table created successfully.\n\n**Sheet**: ${output.pivotTableSheetName} (ID: ${output.pivotTableSheetId})\n**Source**: ${output.sourceRange}\n**Row Groups**: ${output.rowGroups}\n**Column Groups**: ${output.columnGroups}\n**Values**: ${output.valueAggregations}\n**Filters**: ${output.filters}`
           }],
           structuredContent: output
         };
