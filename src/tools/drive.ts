@@ -503,7 +503,9 @@ Returns:
           pageSize: params.page_size,
           pageToken: params.page_token,
           orderBy: params.order_by,
-          fields: "files(id,name,mimeType,createdTime,modifiedTime,size,webViewLink,owners),nextPageToken"
+          fields: "files(id,name,mimeType,createdTime,modifiedTime,size,webViewLink,owners),nextPageToken",
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true
         });
 
         const files: FileData[] = (response.data.files || []).map(f => ({
@@ -616,7 +618,9 @@ Examples:
           q,
           pageSize: params.page_size,
           pageToken: params.page_token,
-          fields: "files(id,name,mimeType,createdTime,modifiedTime,size,webViewLink,owners),nextPageToken"
+          fields: "files(id,name,mimeType,createdTime,modifiedTime,size,webViewLink,owners),nextPageToken",
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true
         });
 
         const files: FileData[] = (response.data.files || []).map(f => ({
@@ -700,7 +704,8 @@ Examples:
         // First get file metadata to determine type and name
         const metadata = await drive.files.get({
           fileId: params.file_id,
-          fields: "id,name,mimeType,size"
+          fields: "id,name,mimeType,size",
+          supportsAllDrives: true
         });
 
         const mimeType = metadata.data.mimeType || "application/octet-stream";
@@ -739,7 +744,8 @@ Examples:
           // Download binary files directly
           const response = await drive.files.get({
             fileId: params.file_id,
-            alt: "media"
+            alt: "media",
+            supportsAllDrives: true
           }, {
             responseType: "arraybuffer"
           });
@@ -866,7 +872,8 @@ Examples:
         const response = await drive.files.copy({
           fileId: params.file_id,
           fields: "id,name,mimeType,webViewLink",
-          requestBody
+          requestBody,
+          supportsAllDrives: true
         });
 
         const output = {
